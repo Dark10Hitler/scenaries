@@ -45,7 +45,8 @@ dp = Dispatcher()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Это позволяет Lovable делать запросы с любого домена
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -164,4 +165,5 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
