@@ -4,3 +4,4 @@ sqlalchemy
 psycopg2-binary
 requests
 python-dotenv
+aiogram==3.10.0
