@@ -77,7 +77,7 @@ def create_cryptomus_invoice(user_id: str, amount: str, count: int):
 @dp.message(F.text.startswith("/start"))
 async def cmd_start(message: types.Message):
     user_id_from_url = message.text.replace("/start ", "")
-    if user_id_from_url == "/start" or not user_id_from_url:
+    if user_id_from_url == "/start":
         await message.answer("🚀 Please access the payment section via the official website to top up your balance.")
         return
 
@@ -96,7 +96,6 @@ async def cmd_start(message: types.Message):
         reply_markup=kb,
         parse_mode="Markdown"
     )
-
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy(callback: types.CallbackQuery):
     _, price, count, uid = callback.data.split("_")
