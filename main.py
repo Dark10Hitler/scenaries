@@ -78,15 +78,24 @@ def create_cryptomus_invoice(user_id: str, amount: str, count: int):
 async def cmd_start(message: types.Message):
     user_id_from_url = message.text.replace("/start ", "")
     if user_id_from_url == "/start" or not user_id_from_url:
-        await message.answer("Пожалуйста, зайдите через сайт для пополнения баланса.")
+        await message.answer("🚀 Please access the payment section via the official website to top up your balance.")
         return
 
+    # Клавиатура с английским текстом и маркетинговыми акцентами
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="20 запросов — 2$", callback_data=f"buy_2_20_{user_id_from_url}")],
-        [InlineKeyboardButton(text="50 запросов — 4$", callback_data=f"buy_4_50_{user_id_from_url}")],
-        [InlineKeyboardButton(text="130 запросов — 10$", callback_data=f"buy_10_130_{user_id_from_url}")]
+        [InlineKeyboardButton(text="Standard: 10 Scripts — $2", callback_data=f"buy_2_10_{uid}")],
+        [InlineKeyboardButton(text="🔥 Popular: 30 Scripts — $4 (50% OFF)", callback_data=f"buy_4_30_{uid}")],
+        [InlineKeyboardButton(text="💎 Pro: 100 Scripts — $10 (60% OFF)", callback_data=f"buy_10_100_{uid}")]
     ])
-    await message.answer(f"💳 Пополнение баланса\nВаш ID: {user_id_from_url}\nВыберите пакет:", reply_markup=kb)
+
+    # Приветственное сообщение
+    await message.answer(
+        f"💳 **Secure Checkout for ID: {uid}**\n\n"
+        f"Choose your credit pack below to unlock professional AI scriptwriting, storyboards, and viral thumbnails.\n\n"
+        f"⚡ **FLASH SALE:** Limited time discounts up to 60% applied!", 
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
 
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy(callback: types.CallbackQuery):
@@ -225,4 +234,5 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
 
