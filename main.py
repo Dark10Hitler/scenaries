@@ -76,26 +76,29 @@ def create_cryptomus_invoice(user_id: str, amount: str, count: int):
 # --- Логика Telegram Бота ---
 @dp.message(F.text.startswith("/start"))
 async def cmd_start(message: types.Message):
-    user_id_from_url = message.text.replace("/start ", "")
-    if user_id_from_url == "/start":
+    # Извлекаем ID из ссылки типа t.me/bot?start=user_id
+    user_id_from_url = message.text.replace("/start ", "").strip()
+    
+    # Если параметров нет, значит пользователь зашел не по ссылке "Buy"
+    if user_id_from_url == "/start" or not user_id_from_url:
         await message.answer("🚀 Please access the payment section via the official website to top up your balance.")
         return
 
-    # Клавиатура с английским текстом и маркетинговыми акцентами
+    # МЫ ИСПОЛЬЗУЕМ user_id_from_url, чтобы кнопки знали, кому начислять баланс
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Standard: 10 Scripts — $2", callback_data=f"buy_2_10_{uid}")],
-        [InlineKeyboardButton(text="🔥 Popular: 30 Scripts — $4 (50% OFF)", callback_data=f"buy_4_30_{uid}")],
-        [InlineKeyboardButton(text="💎 Pro: 100 Scripts — $10 (60% OFF)", callback_data=f"buy_10_100_{uid}")]
+        [InlineKeyboardButton(text="Standard: 10 Scripts — $2", callback_data=f"buy_2_10_{user_id_from_url}")],
+        [InlineKeyboardButton(text="🔥 Popular: 30 Scripts — $4 (50% OFF)", callback_data=f"buy_4_30_{user_id_from_url}")],
+        [InlineKeyboardButton(text="💎 Pro: 100 Scripts — $10 (60% OFF)", callback_data=f"buy_10_100_{user_id_from_url}")]
     ])
 
-    # Приветственное сообщение
     await message.answer(
-        f"💳 **Secure Checkout for ID: {uid}**\n\n"
+        f"💳 **Secure Checkout for ID: {user_id_from_url}**\n\n"
         f"Choose your credit pack below to unlock professional AI scriptwriting, storyboards, and viral thumbnails.\n\n"
         f"⚡ **FLASH SALE:** Limited time discounts up to 60% applied!", 
         reply_markup=kb,
         parse_mode="Markdown"
     )
+    
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy(callback: types.CallbackQuery):
     _, price, count, uid = callback.data.split("_")
@@ -252,6 +255,7 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
 
 
 
