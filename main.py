@@ -56,24 +56,46 @@ def create_cryptomus_invoice(user_id: str, amount: str, count: int):
     payload = {
         "amount": amount,
         "currency": "USD",
-        "order_id": f"{user_id}_{count}_{os.urandom(4).hex()}",
-        "url_callback": "https://scenaries.onrender.com/cryptomus_webhook"
+        "order_id": f"{user_id}_{count}_{os.urandom(2).hex()}", # Укоротили ID
+        "url_callback": "https://scenaries.onrender.com/cryptomus_webhook",
+        "lifetime": 3600 # Ссылка живет 1 час
     }
+    
     data_json = json.dumps(payload)
-    sign = hashlib.md5((base64.b64encode(data_json.encode()).decode() + CRYPTOMUS_KEY).encode()).hexdigest()
+    # Кодируем в Base64 без лишних пробелов
+    data_base64 = base64.b64encode(data_json.encode()).decode()
+    
+    # Формируем подпись: MD5(base64 + API_KEY)
+    sign = hashlib.md5((data_base64 + CRYPTOMUS_KEY).encode()).hexdigest()
     
     headers = {
         "merchant": CRYPTOMUS_MERCHANT,
         "sign": sign,
         "Content-Type": "application/json"
     }
+    
     try:
-        res = requests.post("https://api.cryptomus.com/v1/payment", headers=headers, data=data_json, timeout=10)
-        return res.json().get("result", {}).get("url")
-    except:
+        # Используем современный метод API
+        res = requests.post(
+            "https://api.cryptomus.com/v1/payment", 
+            headers=headers, 
+            data=data_json, 
+            timeout=15
+        )
+        response_data = res.json()
+        
+        # ЛОГИРОВАНИЕ (поможет увидеть ошибку в консоли Render)
+        print(f"Cryptomus Response: {response_data}")
+        
+        if response_data.get("state") == 0: # 0 означает успех в Cryptomus
+            return response_data.get("result", {}).get("url")
+        else:
+            print(f"Cryptomus Error Message: {response_data.get('message')}")
+            return None
+    except Exception as e:
+        print(f"Network Error: {e}")
         return None
-
-# --- Логика Telegram Бота ---
+        
 # --- Логика Telegram Бота ---
 
 @dp.message(F.text.startswith("/start"))
@@ -281,6 +303,7 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
 
 
 
