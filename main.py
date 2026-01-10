@@ -74,17 +74,24 @@ def create_cryptomus_invoice(user_id: str, amount: str, count: int):
         return None
 
 # --- Логика Telegram Бота ---
+# --- Логика Telegram Бота ---
+
 @dp.message(F.text.startswith("/start"))
 async def cmd_start(message: types.Message):
     # Извлекаем ID из ссылки типа t.me/bot?start=user_id
-    user_id_from_url = message.text.replace("/start ", "").strip()
+    # strip() убирает лишние пробелы, которые могут сломать базу данных
+    user_id_from_url = message.text.replace("/start", "").strip()
     
-    # Если параметров нет, значит пользователь зашел не по ссылке "Buy"
-    if user_id_from_url == "/start" or not user_id_from_url:
-        await message.answer("🚀 Please access the payment section via the official website to top up your balance.")
+    # Если параметров нет, значит пользователь зашел просто в бота, а не с сайта
+    if not user_id_from_url:
+        await message.answer(
+            "🚀 **Welcome to ScriptAI!**\n\nPlease access the payment section via the official website to top up your balance.",
+            parse_mode="Markdown"
+        )
         return
 
-    # МЫ ИСПОЛЬЗУЕМ user_id_from_url, чтобы кнопки знали, кому начислять баланс
+    # Формируем клавиатуру. В callback_data ВАЖНО передать user_id_from_url
+    # Мы используем его как четвертый аргумент, чтобы process_buy знал, кому начислять баланс
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Standard: 10 Scripts — $2", callback_data=f"buy_2_10_{user_id_from_url}")],
         [InlineKeyboardButton(text="🔥 Popular: 30 Scripts — $4 (50% OFF)", callback_data=f"buy_4_30_{user_id_from_url}")],
@@ -92,26 +99,45 @@ async def cmd_start(message: types.Message):
     ])
 
     await message.answer(
-        f"💳 **Secure Checkout for ID: {user_id_from_url}**\n\n"
-        f"Choose your credit pack below to unlock professional AI scriptwriting, storyboards, and viral thumbnails.\n\n"
+        f"💳 **Secure Checkout for ID: `{user_id_from_url}`**\n\n"
+        f"Choose your credit pack below to unlock professional AI scriptwriting and viral storyboards.\n\n"
         f"⚡ **FLASH SALE:** Limited time discounts up to 60% applied!", 
         reply_markup=kb,
         parse_mode="Markdown"
     )
-    
+
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy(callback: types.CallbackQuery):
-    _, price, count, uid = callback.data.split("_")
-    pay_url = create_cryptomus_invoice(uid, price, count)
-    if pay_url:
-        await callback.message.edit_text(
-            f"Пакет: {count} запросов за {price}$.\nОплатите по кнопке ниже:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Оплатить Криптовалютой", url=pay_url)]
-            ])
-        )
-    else:
-        await callback.answer("Ошибка связи с платежной системой.")
+    try:
+        # Распаковываем данные из кнопки
+        _, price, count, uid = callback.data.split("_")
+        
+        # Создаем инвойс в Cryptomus
+        pay_url = create_cryptomus_invoice(uid, price, int(count))
+        
+        if pay_url:
+            # Уведомляем пользователя, что ссылка готова
+            await callback.message.edit_text(
+                f"🌟 **Order Summary:**\n"
+                f"Pack: {count} Scripts\n"
+                f"Total Price: ${price}\n\n"
+                f"Click the button below to pay with Crypto:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💳 Pay with Cryptomus", url=pay_url)],
+                    [InlineKeyboardButton(text="❌ Cancel", callback_data="cancel_pay")]
+                ]),
+                parse_mode="Markdown"
+            )
+        else:
+            await callback.answer("❌ Error creating invoice. Please try again.", show_alert=True)
+            
+    except Exception as e:
+        print(f"Callback Error: {e}")
+        await callback.answer("❌ System error. Contact support.", show_alert=True)
+
+@dp.callback_query(F.data == "cancel_pay")
+async def cancel_payment(callback: types.CallbackQuery):
+    await callback.message.edit_text("Payment cancelled. You can return to the website.")
 
 # --- API Эндпоинты ---
 class GenerateReq(BaseModel):
@@ -255,6 +281,7 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
 
 
 
