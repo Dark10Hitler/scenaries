@@ -100,20 +100,25 @@ def create_cryptomus_invoice(user_id: str, amount: str, count: int):
 
 @dp.message(F.text.startswith("/start"))
 async def cmd_start(message: types.Message):
-    # Извлекаем ID из ссылки типа t.me/bot?start=user_id
-    # strip() убирает лишние пробелы, которые могут сломать базу данных
     user_id_from_url = message.text.replace("/start", "").strip()
     
-    # Если параметров нет, значит пользователь зашел просто в бота, а не с сайта
+    # Если пользователь зашел без ID (просто в бота)
     if not user_id_from_url:
+        # Создаем кнопку перехода на сайт
+        site_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🌐 Go to Website", url="https://aura-dialogue-stream.vercel.app")]
+        ])
+        
         await message.answer(
-            "🚀 **Welcome to ScriptAI!**\n\nPlease access the payment section via the official website to top up your balance.",
-            parse_mode="Markdown"
+            "🚀 **Welcome to ScriptAI!**\n\n"
+            "To top up your balance and use AI tools, please visit our official website. "
+            "Your account and mining progress are managed there.",
+            parse_mode="Markdown",
+            reply_markup=site_kb
         )
         return
 
-    # Формируем клавиатуру. В callback_data ВАЖНО передать user_id_from_url
-    # Мы используем его как четвертый аргумент, чтобы process_buy знал, кому начислять баланс
+    # Если пользователь пришел с сайта (с ID)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Standard: 10 Scripts — $2", callback_data=f"buy_2_10_{user_id_from_url}")],
         [InlineKeyboardButton(text="🔥 Popular: 30 Scripts — $4 (50% OFF)", callback_data=f"buy_4_30_{user_id_from_url}")],
@@ -122,7 +127,7 @@ async def cmd_start(message: types.Message):
 
     await message.answer(
         f"💳 **Secure Checkout for ID: `{user_id_from_url}`**\n\n"
-        f"Choose your credit pack below to unlock professional AI scriptwriting and viral storyboards.\n\n"
+        f"Choose your credit pack below to unlock professional AI scriptwriting.\n\n"
         f"⚡ **FLASH SALE:** Limited time discounts up to 60% applied!", 
         reply_markup=kb,
         parse_mode="Markdown"
@@ -303,6 +308,7 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
 
 
 
