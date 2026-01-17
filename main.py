@@ -176,7 +176,7 @@ async def get_bal(user_id: str):
     db = SessionLocal()
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
-        user = User(user_id=user_id, balance=10)
+        user = User(user_id=user_id, balance=3)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -190,7 +190,7 @@ async def gen(req: GenerateReq):
     user = db.query(User).filter(User.user_id == req.user_id).first()
     
     if not user:
-        user = User(user_id=req.user_id, balance=10)
+        user = User(user_id=req.user_id, balance=3)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -308,6 +308,7 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
 
 
 
