@@ -106,7 +106,7 @@ async def cmd_start(message: types.Message):
     if not user_id_from_url:
         # Создаем кнопку перехода на сайт
         site_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🌐 Go to Website", url="https://aura-dialogue-stream.vercel.app")]
+            [InlineKeyboardButton(text="🌐 Go to Website", url="https://script-ai-web.vercel.app/")]
         ])
         
         await message.answer(
@@ -340,6 +340,7 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
 
 
 
