@@ -3,11 +3,13 @@ import hashlib
 import json
 import base64
 import asyncio
+import secrets
 import requests
+from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
@@ -33,10 +35,47 @@ Base = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
-    user_id = Column(String, primary_key=True)
-    balance = Column(Integer, default=10)
+    user_id = Column(String, primary_key=True) # Telegram ID
+    lovable_id = Column(String, unique=True, index=True) # Публичный ID: scen_...
+    username = Column(String)
+    balance = Column(Integer, default=3)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
+
+# --- Вспомогательные функции ---
+def generate_lovable_id():
+    """Генерирует ID в стиле Lovable: scen_mjxynckq_9ho58phs"""
+    p1 = secrets.token_hex(4)
+    p2 = secrets.token_hex(4)
+    return f"scen_{p1}_{p2}"
+
+def create_cryptomus_invoice(user_id: str, amount: str, count: int):
+    payload = {
+        "amount": amount,
+        "currency": "USD",
+        "order_id": f"{user_id}_{count}_{os.urandom(2).hex()}",
+        "url_callback": "https://scenaries.onrender.com/cryptomus_webhook",
+        "lifetime": 3600
+    }
+    data_json = json.dumps(payload)
+    data_base64 = base64.b64encode(data_json.encode()).decode()
+    sign = hashlib.md5((data_base64 + CRYPTOMUS_KEY).encode()).hexdigest()
+    
+    headers = {
+        "merchant": CRYPTOMUS_MERCHANT,
+        "sign": sign,
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        res = requests.post("https://api.cryptomus.com/v1/payment", headers=headers, data=data_json, timeout=15)
+        response_data = res.json()
+        if response_data.get("state") == 0:
+            return response_data.get("result", {}).get("url")
+    except Exception as e:
+        print(f"Cryptomus Error: {e}")
+    return None
 
 # --- Инициализация API и Бота ---
 app = FastAPI()
@@ -51,135 +90,104 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Вспомогательные функции Cryptomus ---
-def create_cryptomus_invoice(user_id: str, amount: str, count: int):
-    payload = {
-        "amount": amount,
-        "currency": "USD",
-        "order_id": f"{user_id}_{count}_{os.urandom(2).hex()}", # Укоротили ID
-        "url_callback": "https://scenaries.onrender.com/cryptomus_webhook",
-        "lifetime": 3600 # Ссылка живет 1 час
-    }
-    
-    data_json = json.dumps(payload)
-    # Кодируем в Base64 без лишних пробелов
-    data_base64 = base64.b64encode(data_json.encode()).decode()
-    
-    # Формируем подпись: MD5(base64 + API_KEY)
-    sign = hashlib.md5((data_base64 + CRYPTOMUS_KEY).encode()).hexdigest()
-    
-    headers = {
-        "merchant": CRYPTOMUS_MERCHANT,
-        "sign": sign,
-        "Content-Type": "application/json"
-    }
-    
-    try:
-        # Используем современный метод API
-        res = requests.post(
-            "https://api.cryptomus.com/v1/payment", 
-            headers=headers, 
-            data=data_json, 
-            timeout=15
-        )
-        response_data = res.json()
-        
-        # ЛОГИРОВАНИЕ (поможет увидеть ошибку в консоли Render)
-        print(f"Cryptomus Response: {response_data}")
-        
-        if response_data.get("state") == 0: # 0 означает успех в Cryptomus
-            return response_data.get("result", {}).get("url")
-        else:
-            print(f"Cryptomus Error Message: {response_data.get('message')}")
-            return None
-    except Exception as e:
-        print(f"Network Error: {e}")
-        return None
-        
 # --- Логика Telegram Бота ---
 
 @dp.message(F.text.startswith("/start"))
 async def cmd_start(message: types.Message):
-    user_id_from_url = message.text.replace("/start", "").strip()
+    db = SessionLocal()
+    # Ищем юзера по TG ID
+    user = db.query(User).filter(User.user_id == str(message.from_user.id)).first()
     
-    # Если пользователь зашел без ID (просто в бота)
-    if not user_id_from_url:
-        # Создаем кнопку перехода на сайт
-        site_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🌐 Go to Website", url="https://script-ai-web.vercel.app/")]
-        ])
-        
-        await message.answer(
-            "🚀 **Welcome to ScriptAI!**\n\n"
-            "To top up your balance and use AI tools, please visit our official website. "
-            "Your account and mining progress are managed there.",
-            parse_mode="Markdown",
-            reply_markup=site_kb
+    if not user:
+        # Создаем нового с уникальным Lovable ID
+        user = User(
+            user_id=str(message.from_user.id),
+            lovable_id=generate_lovable_id(),
+            username=message.from_user.username or "User",
+            balance=3
         )
-        return
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
-    # Если пользователь пришел с сайта (с ID)
+    profile_text = (
+        f"🚀 **ScriptAI: Authentication Successful**\n"
+        f"──────────────────\n"
+        f"👤 **User:** @{user.username}\n"
+        f"🆔 **Telegram ID:** `{user.user_id}`\n"
+        f"🔑 **Access ID:** `{user.lovable_id}`\n"
+        f"💰 **Balance:** `{user.balance}` Credits\n"
+        f"──────────────────\n"
+        f"☝️ **Copy your Access ID and paste it on the website to login.**"
+    )
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Standard: 10 Scripts — $2", callback_data=f"buy_2_10_{user_id_from_url}")],
-        [InlineKeyboardButton(text="🔥 Popular: 30 Scripts — $4 (50% OFF)", callback_data=f"buy_4_30_{user_id_from_url}")],
-        [InlineKeyboardButton(text="💎 Pro: 100 Scripts — $10 (60% OFF)", callback_data=f"buy_10_100_{user_id_from_url}")]
+        [InlineKeyboardButton(text="🌐 Go to Website", url="https://script-ai-web.vercel.app/")],
+        [InlineKeyboardButton(text="💳 Buy Credits", callback_data=f"buy_menu_{user.user_id}")]
     ])
 
-    await message.answer(
-        f"💳 **Secure Checkout for ID: `{user_id_from_url}`**\n\n"
-        f"Choose your credit pack below to unlock professional AI scriptwriting.\n\n"
-        f"⚡ **FLASH SALE:** Limited time discounts up to 60% applied!", 
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+    await message.answer(profile_text, parse_mode="Markdown", reply_markup=kb)
+    db.close()
+
+@dp.callback_query(F.data.startswith("buy_menu_"))
+async def show_buy_menu(callback: types.CallbackQuery):
+    uid = callback.data.split("_")[-1]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Standard: 10 Scripts — $2", callback_data=f"buy_2_10_{uid}")],
+        [InlineKeyboardButton(text="🔥 Popular: 30 Scripts — $4", callback_data=f"buy_4_30_{uid}")],
+        [InlineKeyboardButton(text="💎 Pro: 100 Scripts — $10", callback_data=f"buy_10_100_{uid}")],
+        [InlineKeyboardButton(text="⬅️ Back", callback_data="back_to_profile")]
+    ])
+    await callback.message.edit_text("💳 **Select a package to top up:**", reply_markup=kb, parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy(callback: types.CallbackQuery):
     try:
-        # Распаковываем данные из кнопки
         _, price, count, uid = callback.data.split("_")
-        
-        # Создаем инвойс в Cryptomus
         pay_url = create_cryptomus_invoice(uid, price, int(count))
         
         if pay_url:
-            # Уведомляем пользователя, что ссылка готова
-            await callback.message.edit_text(
-                f"🌟 **Order Summary:**\n"
-                f"Pack: {count} Scripts\n"
-                f"Total Price: ${price}\n\n"
-                f"Click the button below to pay with Crypto:",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💳 Pay with Cryptomus", url=pay_url)],
-                    [InlineKeyboardButton(text="❌ Cancel", callback_data="cancel_pay")]
-                ]),
-                parse_mode="Markdown"
-            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Pay with Crypto", url=pay_url)],
+                [InlineKeyboardButton(text="❌ Cancel", callback_data="back_to_profile")]
+            ])
+            await callback.message.edit_text(f"🌟 **Order: {count} Scripts**\nPrice: ${price}\n\nProceed to payment:", reply_markup=kb)
         else:
-            await callback.answer("❌ Error creating invoice. Please try again.", show_alert=True)
-            
-    except Exception as e:
-        print(f"Callback Error: {e}")
-        await callback.answer("❌ System error. Contact support.", show_alert=True)
-
-@dp.callback_query(F.data == "cancel_pay")
-async def cancel_payment(callback: types.CallbackQuery):
-    await callback.message.edit_text("Payment cancelled. You can return to the website.")
+            await callback.answer("Invoice error. Try again.", show_alert=True)
+    except: pass
 
 # --- API Эндпоинты ---
+
 class GenerateReq(BaseModel):
-    user_id: str
+    user_id: str # Здесь может быть либо TG ID, либо Lovable ID (обработаем оба)
     prompt: str
+
+@app.get("/auth/{l_id}")
+async def get_auth_data(l_id: str):
+    """Специальный эндпоинт для входа с сайта через Lovable ID"""
+    db = SessionLocal()
+    user = db.query(User).filter(User.lovable_id == l_id).first()
+    if not user:
+        db.close()
+        raise HTTPException(status_code=404, detail="Access ID not found")
+    
+    res = {
+        "user_id": user.user_id,
+        "lovable_id": user.lovable_id,
+        "username": user.username,
+        "balance": user.balance
+    }
+    db.close()
+    return res
 
 @app.get("/get_balance/{user_id}")
 async def get_bal(user_id: str):
     db = SessionLocal()
-    user = db.query(User).filter(User.user_id == user_id).first()
+    # Проверяем и по TG ID, и по Lovable ID для гибкости
+    user = db.query(User).filter((User.user_id == user_id) | (User.lovable_id == user_id)).first()
     if not user:
-        user = User(user_id=user_id, balance=3)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+        db.close()
+        return {"balance": 0, "error": "not found"}
     bal = user.balance
     db.close()
     return {"balance": bal}
@@ -187,31 +195,25 @@ async def get_bal(user_id: str):
 @app.post("/generate")
 async def gen(req: GenerateReq):
     db = SessionLocal()
-    user = db.query(User).filter(User.user_id == req.user_id).first()
+    # Поиск юзера
+    user = db.query(User).filter((User.user_id == req.user_id) | (User.lovable_id == req.user_id)).first()
     
-    if not user:
-        user = User(user_id=req.user_id, balance=3)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-    if user.balance <= 0:
+    if not user or user.balance <= 0:
         db.close()
         raise HTTPException(status_code=403, detail="Insufficient balance")
 
-    # Ключевые исправления для OpenRouter
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://scenaries.onrender.com", # Требуется OpenRouter
+        "HTTP-Referer": "https://scenaries.onrender.com",
         "X-Title": "AI Scenario Generator"
     }
     
     payload = {
         "model": "anthropic/claude-3.5-sonnet",
         "messages": [
-    {
-        "role": "system", 
+            {
+                "role": "system", 
         "content": """Ты — мировой эксперт по виральному маркетингу, элитный режиссер и нейро-психолог. 
         Твоя специализация: создание контента, который удерживает внимание и становится виральным. 
         Ты мыслишь категориями дофаминовых петель, визуальных зацепок и профессионального киноязыка.
@@ -285,16 +287,15 @@ AI_VIDEO_PROMPT: (Промт для Runway/Luma на английском)
 Сгенерируй монолитный God-Prompt на английском языке для ChatGPT/Midjourney, чтобы полностью упаковать этот ролик (описания, превью, посты)."""
 
     },
-    {"role": "user", "content": req.prompt}
-]
+            {"role": "user", "content": req.prompt}
+        ]
     }
     
     try:
-        # Используем asyncio для предотвращения блокировки
         loop = asyncio.get_event_loop()
         resp = await loop.run_in_executor(
             None, 
-            lambda: requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=45)
+            lambda: requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
         )
         
         if resp.status_code == 200:
@@ -304,10 +305,8 @@ AI_VIDEO_PROMPT: (Промт для Runway/Luma на английском)
             db.commit()
             return {"script": script_content, "balance": user.balance}
         else:
-            print(f"OpenRouter Error: {resp.text}")
             raise HTTPException(status_code=resp.status_code, detail="AI Service Error")
     except Exception as e:
-        print(f"Generate Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
@@ -327,7 +326,7 @@ async def webhook(request: Request):
                     user.balance += count
                     db.commit()
                     try:
-                        await bot.send_message(u_id, f"✅ Оплата прошла! Вам начислено {count} запросов. Обновите страницу на сайте.")
+                        await bot.send_message(u_id, f"✅ Payment Received! +{count} Scripts added to your balance.")
                     except: pass
                 db.close()
     except: pass
@@ -339,17 +338,5 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
+    # На Render порт берется из переменной окружения PORT
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
-
-
-
-
-
-
-
-
-
-
-
-
-
